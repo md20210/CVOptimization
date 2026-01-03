@@ -1,6 +1,19 @@
 #!/bin/bash
-# This script will be deployed as a Railway service to clean n8n tables
+# Create separate n8n database
 
+echo "🔗 Connecting to database..."
+echo "Database: $DATABASE_URL"
+
+echo "📦 Creating separate n8n database..."
+psql "$DATABASE_URL" -c "CREATE DATABASE n8n_db;" || echo "Database might already exist"
+echo "✅ Database n8n_db created or already exists!"
+echo ""
+echo "New connection string for n8n:"
+echo "postgresql://postgres:QMsZIHABICYpgVtQSIxJgJHoGtptYlFZ@pgvector-railway.railway.internal:5432/n8n_db"
+echo ""
+exit 0
+
+# OLD CODE BELOW (not executed):
 echo "🔗 Connecting to database..."
 echo "Database: $DATABASE_URL"
 
