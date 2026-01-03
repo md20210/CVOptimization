@@ -1,0 +1,294 @@
+{
+  "name": "CV Optimizer - Claude",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cv-optimizer-claude",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse webhook input\nconst body = $input.first().json.body;\n\nreturn [{\n  json: {\n    llmProvider: body.llm_provider || 'claude',\n    jobTitle: body.job_title,\n    jobDescription: body.job_description,\n    cvText: body.cv_text\n  }\n}];"
+      },
+      "id": "parse-input",
+      "name": "Parse Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {},
+        "text": "=You are an ATS keyword extraction expert.\n\nAnalyze this job description and extract ALL important keywords:\n\nJob Title: {{ $json.jobTitle }}\nJob Description: {{ $json.jobDescription }}\n\nReturn ONLY valid JSON:\n{\n  \"keywords\": [\n    {\"keyword\": \"Python\", \"category\": \"technical_skill\", \"importance\": \"required\"},\n    {\"keyword\": \"5+ years\", \"category\": \"experience\", \"importance\": \"required\"}\n  ],\n  \"total_count\": 10\n}"
+      },
+      "id": "step1-keywords",
+      "name": "Step 1: Keywords",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Step 1\nconst input = $('Parse Input').first().json;\nconst keywords = $input.first().json;\n\nreturn [{\n  json: {\n    ...input,\n    step1_keywords: keywords\n  }\n}];"
+      },
+      "id": "merge-step1",
+      "name": "Merge Step 1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {},
+        "text": "=Analyze gaps between CV and job requirements.\n\nCV: {{ $json.cvText }}\nJob Requirements: {{ $json.jobDescription }}\nExtracted Keywords: {{ JSON.stringify($json.step1_keywords) }}\n\nReturn ONLY valid JSON:\n{\n  \"matched_keywords\": [{\"keyword\": \"React\", \"found_in\": \"experience\"}],\n  \"missing_keywords\": [{\"keyword\": \"Docker\", \"importance\": \"required\"}],\n  \"ats_score_original\": 65\n}"
+      },
+      "id": "step2-gap",
+      "name": "Step 2: Gap Analysis",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Step 2\nconst previous = $('Merge Step 1').first().json;\nconst gap = $input.first().json;\n\nreturn [{\n  json: {\n    ...previous,\n    step2_gap_analysis: gap\n  }\n}];"
+      },
+      "id": "merge-step2",
+      "name": "Merge Step 2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {},
+        "text": "=Create an optimized professional summary.\n\nOriginal CV: {{ $json.cvText }}\nJob Title: {{ $json.jobTitle }}\nMissing Keywords: {{ JSON.stringify($json.step2_gap_analysis.missing_keywords) }}\n\nReturn ONLY valid JSON:\n{\n  \"optimized_summary\": \"Senior Software Engineer with 5+ years...\",\n  \"keywords_added\": [\"Docker\", \"Kubernetes\"],\n  \"keywords_emphasized\": [\"React\", \"Node.js\"]\n}"
+      },
+      "id": "step3-summary",
+      "name": "Step 3: Summary",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [1560, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Step 3\nconst previous = $('Merge Step 2').first().json;\nconst summary = $input.first().json;\n\nreturn [{\n  json: {\n    ...previous,\n    step3_summary: summary\n  }\n}];"
+      },
+      "id": "merge-step3",
+      "name": "Merge Step 3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {},
+        "text": "=Optimize CV bullets using STAR format.\n\nOriginal CV: {{ $json.cvText }}\nMissing Keywords: {{ JSON.stringify($json.step2_gap_analysis.missing_keywords) }}\n\nReturn ONLY valid JSON:\n{\n  \"optimized_bullets\": [\n    {\n      \"original\": \"Developed web apps\",\n      \"optimized\": \"Developed scalable web applications using React and Node.js, serving 10k+ users\",\n      \"keywords_added\": [\"scalable\", \"React\"],\n      \"metrics_added\": [\"10k+ users\"]\n    }\n  ]\n}"
+      },
+      "id": "step4-bullets",
+      "name": "Step 4: Bullets",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [2000, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Step 4\nconst previous = $('Merge Step 3').first().json;\nconst bullets = $input.first().json;\n\nreturn [{\n  json: {\n    ...previous,\n    step4_bullets: bullets\n  }\n}];"
+      },
+      "id": "merge-step4",
+      "name": "Merge Step 4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {},
+        "text": "=Reorganize skills section.\n\nOriginal Skills: {{ $json.cvText }}\nMissing Keywords: {{ JSON.stringify($json.step2_gap_analysis.missing_keywords) }}\n\nReturn ONLY valid JSON:\n{\n  \"skills_categories\": [\n    {\"category\": \"Frontend\", \"skills\": [\"React\", \"TypeScript\"], \"priority\": \"high\"},\n    {\"category\": \"Backend\", \"skills\": [\"Node.js\", \"PostgreSQL\"], \"priority\": \"high\"}\n  ],\n  \"skills_added\": [\"Docker\", \"Kubernetes\"],\n  \"skills_removed\": []\n}"
+      },
+      "id": "step5-skills",
+      "name": "Step 5: Skills",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [2440, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Step 5\nconst previous = $('Merge Step 4').first().json;\nconst skills = $input.first().json;\n\nreturn [{\n  json: {\n    ...previous,\n    step5_skills: skills\n  }\n}];"
+      },
+      "id": "merge-step5",
+      "name": "Merge Step 5",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {},
+        "text": "=Assemble the complete optimized CV.\n\nSummary: {{ JSON.stringify($json.step3_summary) }}\nBullets: {{ JSON.stringify($json.step4_bullets) }}\nSkills: {{ JSON.stringify($json.step5_skills) }}\n\nReturn ONLY valid JSON:\n{\n  \"optimized_cv\": {\n    \"summary\": \"Complete optimized summary\",\n    \"experience\": [{\"title\": \"Senior Engineer\", \"bullets\": [\"Optimized bullet 1\"]}],\n    \"skills\": {\"Frontend\": [\"React\", \"TypeScript\"]},\n    \"full_text\": \"Complete CV text\"\n  }\n}"
+      },
+      "id": "step6-assembly",
+      "name": "Step 6: Assembly",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [2880, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Merge Step 6\nconst previous = $('Merge Step 5').first().json;\nconst assembly = $input.first().json;\n\nreturn [{\n  json: {\n    ...previous,\n    step6_assembly: assembly\n  }\n}];"
+      },
+      "id": "merge-step6",
+      "name": "Merge Step 6",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 300]
+    },
+    {
+      "parameters": {
+        "model": "claude-3-5-sonnet-20241022",
+        "options": {},
+        "text": "=Final QA and scoring.\n\nOptimized CV: {{ JSON.stringify($json.step6_assembly) }}\nOriginal ATS Score: {{ $json.step2_gap_analysis.ats_score_original }}\n\nReturn ONLY valid JSON:\n{\n  \"ats_score_optimized\": 92,\n  \"improvement\": \"+27 points\",\n  \"keyword_coverage\": {\"total\": 15, \"matched\": 14, \"missing\": [\"CI/CD\"]},\n  \"quality_flags\": [\"All keywords present\", \"STAR format used\"]\n}"
+      },
+      "id": "step7-qa",
+      "name": "Step 7: QA",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [3320, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "ANTHROPIC_CREDENTIAL_ID",
+          "name": "Anthropic Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build final response\nconst data = $input.first().json;\n\nreturn [{\n  json: {\n    success: true,\n    llm_provider: data.llmProvider,\n    job_title: data.jobTitle,\n    steps: {\n      step1_keywords: data.step1_keywords || {},\n      step2_gap_analysis: data.step2_gap_analysis || {},\n      step3_summary: data.step3_summary || {},\n      step4_bullets: data.step4_bullets || {},\n      step5_skills: data.step5_skills || {},\n      step6_assembly: data.step6_assembly || {},\n      step7_qa: $input.first().json\n    }\n  }\n}];"
+      },
+      "id": "build-response",
+      "name": "Build Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3540, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3760, 300]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Parse Input", "type": "main", "index": 0}]]
+    },
+    "Parse Input": {
+      "main": [[{"node": "Step 1: Keywords", "type": "main", "index": 0}]]
+    },
+    "Step 1: Keywords": {
+      "main": [[{"node": "Merge Step 1", "type": "main", "index": 0}]]
+    },
+    "Merge Step 1": {
+      "main": [[{"node": "Step 2: Gap Analysis", "type": "main", "index": 0}]]
+    },
+    "Step 2: Gap Analysis": {
+      "main": [[{"node": "Merge Step 2", "type": "main", "index": 0}]]
+    },
+    "Merge Step 2": {
+      "main": [[{"node": "Step 3: Summary", "type": "main", "index": 0}]]
+    },
+    "Step 3: Summary": {
+      "main": [[{"node": "Merge Step 3", "type": "main", "index": 0}]]
+    },
+    "Merge Step 3": {
+      "main": [[{"node": "Step 4: Bullets", "type": "main", "index": 0}]]
+    },
+    "Step 4: Bullets": {
+      "main": [[{"node": "Merge Step 4", "type": "main", "index": 0}]]
+    },
+    "Merge Step 4": {
+      "main": [[{"node": "Step 5: Skills", "type": "main", "index": 0}]]
+    },
+    "Step 5: Skills": {
+      "main": [[{"node": "Merge Step 5", "type": "main", "index": 0}]]
+    },
+    "Merge Step 5": {
+      "main": [[{"node": "Step 6: Assembly", "type": "main", "index": 0}]]
+    },
+    "Step 6: Assembly": {
+      "main": [[{"node": "Merge Step 6", "type": "main", "index": 0}]]
+    },
+    "Merge Step 6": {
+      "main": [[{"node": "Step 7: QA", "type": "main", "index": 0}]]
+    },
+    "Step 7: QA": {
+      "main": [[{"node": "Build Final Response", "type": "main", "index": 0}]]
+    },
+    "Build Final Response": {
+      "main": [[{"node": "Webhook Response", "type": "main", "index": 0}]]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-03T15:40:00.000Z",
+  "versionId": "1"
+}

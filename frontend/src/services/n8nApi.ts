@@ -193,10 +193,13 @@ export async function optimizeCV(
   onProgress?: (step: number) => void
 ): Promise<OptimizationResponse> {
   try {
-    // For now, direct call (no polling)
-    // TODO: Implement polling for progress updates
+    // Route to correct workflow based on LLM provider
+    const webhookPath = `/webhook/cv-optimizer-${request.llm_provider}`;
+
+    console.log(`Calling n8n workflow: ${webhookPath}`);
+
     const response = await n8nClient.post<OptimizationResponse>(
-      '/webhook/cv-optimizer',
+      webhookPath,
       request
     );
 
