@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Production build
+dist/
+frontend/dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.production
+frontend/.env
+frontend/.env.local
+
+# Logs
+*.log
+npm-debug.log*
+logs/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+coverage/
+
+# Temporary files
+/tmp
+*.tmp
+
+# SFTP/Deployment
+*.bak
+deployment-*.log

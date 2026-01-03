@@ -1,0 +1,24 @@
+John Doe
+Senior Software Engineer
+
+EXPERIENCE
+
+Software Engineer | Tech Corp | 2020-2023
+- Developed web applications using React and Node.js
+- Worked with databases and APIs
+- Collaborated with team members on projects
+- Fixed bugs and improved code quality
+
+Junior Developer | StartupXY | 2018-2020
+- Built features for mobile app
+- Used JavaScript and Python
+- Participated in code reviews
+
+EDUCATION
+
+Bachelor of Science in Computer Science
+University of Technology, 2018
+
+SKILLS
+
+JavaScript, Python, React, Node.js, Git, SQL

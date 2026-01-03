@@ -1,0 +1,343 @@
+{
+  "name": "CV Optimizer - Universal (Multi-LLM)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "cv-optimizer",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "cv-optimizer"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract form data\nconst llmProvider = $input.item.json.body.llm_provider || 'claude';\nconst jobDescription = $input.item.json.body.job_description;\nconst jobTitle = $input.item.json.body.job_title;\nconst cvText = $input.item.json.body.cv_text || '';\n\n// Generate unique job ID\nconst jobId = `job_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;\n\n// Store in workflow context\nreturn {\n  json: {\n    jobId,\n    llmProvider,\n    jobDescription,\n    jobTitle,\n    cvText,\n    timestamp: new Date().toISOString(),\n    steps: {\n      current: 0,\n      total: 7,\n      status: 'initialized'\n    }\n  }\n};"
+      },
+      "id": "parse-input",
+      "name": "Parse Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.llmProvider }}",
+              "operation": "equals",
+              "value2": "claude"
+            }
+          ]
+        }
+      },
+      "id": "llm-router",
+      "name": "LLM Router",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "options": {
+          "temperature": 0.7,
+          "maxTokensToSample": 4096
+        },
+        "model": "claude-sonnet-4-20250514",
+        "prompt": "=You are a professional CV optimizer specializing in ATS (Applicant Tracking System) optimization.\n\n**JOB TITLE:** {{ $json.jobTitle }}\n\n**JOB DESCRIPTION:**\n{{ $json.jobDescription }}\n\n**TASK 1/7: KEYWORD EXTRACTION**\n\nAnalyze the job description and extract:\n1. Hard skills (technologies, tools, frameworks)\n2. Soft skills (leadership, communication, etc.)\n3. Required qualifications (degrees, certifications)\n4. Industry-specific terminology\n5. Key responsibilities\n\nProvide output as JSON:\n{\n  \"keywords\": [\n    {\"keyword\": \"...\", \"category\": \"hard_skill|soft_skill|qualification|term\", \"importance\": \"high|medium|low\"}\n  ],\n  \"total_count\": 0\n}"
+      },
+      "id": "step1-keywords-claude",
+      "name": "Step 1: Keywords (Claude)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1,
+      "position": [850, 200],
+      "credentials": {
+        "anthropicApi": {
+          "id": "{{ANTHROPIC_CREDENTIAL_ID}}",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "grok-2-latest",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 4096,
+          "baseURL": "https://api.x.ai/v1"
+        },
+        "prompt": "=You are a professional CV optimizer specializing in ATS (Applicant Tracking System) optimization.\n\n**JOB TITLE:** {{ $json.jobTitle }}\n\n**JOB DESCRIPTION:**\n{{ $json.jobDescription }}\n\n**TASK 1/7: KEYWORD EXTRACTION**\n\nAnalyze the job description and extract:\n1. Hard skills (technologies, tools, frameworks)\n2. Soft skills (leadership, communication, etc.)\n3. Required qualifications (degrees, certifications)\n4. Industry-specific terminology\n5. Key responsibilities\n\nProvide output as JSON:\n{\n  \"keywords\": [\n    {\"keyword\": \"...\", \"category\": \"hard_skill|soft_skill|qualification|term\", \"importance\": \"high|medium|low\"}\n  ],\n  \"total_count\": 0\n}"
+      },
+      "id": "step1-keywords-grok",
+      "name": "Step 1: Keywords (Grok)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1,
+      "position": [850, 400],
+      "credentials": {
+        "openAiApi": {
+          "id": "{{GROK_CREDENTIAL_ID}}",
+          "name": "Grok API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Merge results from both LLM branches\nconst llmProvider = $('Parse Input').item.json.llmProvider;\nconst llmResponse = $input.item.json.response || $input.item.json.text || JSON.stringify($input.item.json);\n\n// Parse LLM response\nlet keywordsData;\ntry {\n  keywordsData = JSON.parse(llmResponse);\n} catch (e) {\n  // Fallback if not valid JSON\n  keywordsData = {\n    keywords: [],\n    total_count: 0,\n    raw_response: llmResponse\n  };\n}\n\nreturn {\n  json: {\n    ...$('Parse Input').item.json,\n    step1_keywords: keywordsData,\n    steps: {\n      current: 1,\n      total: 7,\n      status: 'step1_completed'\n    }\n  }\n};"
+      },
+      "id": "merge-step1",
+      "name": "Merge Step 1 Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "resource": "chat",
+        "model": "={{ $('LLM Router').item.json.llmProvider === 'claude' ? 'claude-sonnet-4-20250514' : 'grok-2-latest' }}",
+        "prompt": "=**JOB KEYWORDS:**\n{{ JSON.stringify($json.step1_keywords.keywords, null, 2) }}\n\n**CANDIDATE CV:**\n{{ $json.cvText }}\n\n**TASK 2/7: GAP ANALYSIS**\n\nCompare the CV against the extracted keywords:\n1. Which keywords are PRESENT in the CV? (matched)\n2. Which keywords are MISSING? (gaps)\n3. Which CV sections cover which keywords?\n4. Calculate initial ATS score (% of keywords matched)\n\nProvide output as JSON:\n{\n  \"matched_keywords\": [{\"keyword\": \"...\", \"found_in\": \"section_name\"}],\n  \"missing_keywords\": [{\"keyword\": \"...\", \"importance\": \"high|medium|low\"}],\n  \"ats_score_original\": 0-100,\n  \"coverage_by_section\": {\"section_name\": [\"keyword1\", \"keyword2\"]}\n}"
+      },
+      "id": "step2-gap-analysis",
+      "name": "Step 2: Gap Analysis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "notes": "Uses dynamic LLM selection based on router"
+    },
+    {
+      "parameters": {
+        "functionCode": "const gapAnalysis = $input.item.json.response ? JSON.parse($input.item.json.response) : {};\n\nreturn {\n  json: {\n    ...$input.item.json,\n    step2_gap_analysis: gapAnalysis,\n    steps: {\n      current: 2,\n      total: 7,\n      status: 'step2_completed'\n    }\n  }\n};"
+      },
+      "id": "merge-step2",
+      "name": "Merge Step 2 Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1450, 300]
+    },
+    {
+      "parameters": {
+        "prompt": "=**MISSING KEYWORDS:**\n{{ JSON.stringify($json.step2_gap_analysis.missing_keywords, null, 2) }}\n\n**MATCHED KEYWORDS:**\n{{ JSON.stringify($json.step2_gap_analysis.matched_keywords, null, 2) }}\n\n**JOB TITLE:** {{ $json.jobTitle }}\n\n**TASK 3/7: GENERATE PROFESSIONAL SUMMARY**\n\nCreate a powerful 3-4 sentence professional summary that:\n1. Incorporates as many HIGH-priority missing keywords as authentically possible\n2. Highlights matched keywords naturally\n3. Positions the candidate for THIS specific role\n4. Uses strong action verbs and quantifiable achievements\n\nProvide output as JSON:\n{\n  \"optimized_summary\": \"...\",\n  \"keywords_added\": [\"keyword1\", \"keyword2\"],\n  \"keywords_emphasized\": [\"keyword1\", \"keyword2\"]\n}"
+      },
+      "id": "step3-summary",
+      "name": "Step 3: Generate Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1650, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const summaryData = $input.item.json.response ? JSON.parse($input.item.json.response) : {};\n\nreturn {\n  json: {\n    ...$input.item.json,\n    step3_summary: summaryData,\n    steps: {\n      current: 3,\n      total: 7,\n      status: 'step3_completed'\n    }\n  }\n};"
+      },
+      "id": "merge-step3",
+      "name": "Merge Step 3 Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 300]
+    },
+    {
+      "parameters": {
+        "prompt": "=**ORIGINAL CV EXPERIENCE SECTION:**\n{{ $json.cvText }}\n\n**MISSING KEYWORDS TO INTEGRATE:**\n{{ JSON.stringify($json.step2_gap_analysis.missing_keywords, null, 2) }}\n\n**TASK 4/7: OPTIMIZE EXPERIENCE BULLETS**\n\nRewrite experience bullets using STAR format (Situation, Task, Action, Result):\n1. Incorporate missing keywords where authentic\n2. Add quantifiable metrics (%, $, time saved, team size)\n3. Use strong action verbs\n4. Each bullet should be ATS-friendly and impactful\n\nProvide output as JSON:\n{\n  \"optimized_bullets\": [\n    {\n      \"original\": \"...\",\n      \"optimized\": \"...\",\n      \"keywords_added\": [\"...\"],\n      \"metrics_added\": [\"...\"]\n    }\n  ]\n}"
+      },
+      "id": "step4-bullets",
+      "name": "Step 4: Optimize Bullets",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2050, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const bulletsData = $input.item.json.response ? JSON.parse($input.item.json.response) : {};\n\nreturn {\n  json: {\n    ...$input.item.json,\n    step4_bullets: bulletsData,\n    steps: {\n      current: 4,\n      total: 7,\n      status: 'step4_completed'\n    }\n  }\n};"
+      },
+      "id": "merge-step4",
+      "name": "Merge Step 4 Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2250, 300]
+    },
+    {
+      "parameters": {
+        "prompt": "=**JOB KEYWORDS:**\n{{ JSON.stringify($json.step1_keywords.keywords, null, 2) }}\n\n**CURRENT CV SKILLS:**\n{{ $json.cvText }}\n\n**TASK 5/7: REORGANIZE SKILLS SECTION**\n\nReorganize and enhance the skills section:\n1. Group skills by category (Technical, Leadership, Domain Expertise, etc.)\n2. Prioritize job-relevant skills first\n3. Add missing high-priority keywords as skills (if authentic)\n4. Remove outdated/irrelevant skills\n5. Use ATS-friendly formatting\n\nProvide output as JSON:\n{\n  \"skills_categories\": [\n    {\n      \"category\": \"...\",\n      \"skills\": [\"skill1\", \"skill2\"],\n      \"priority\": \"high|medium|low\"\n    }\n  ],\n  \"skills_added\": [\"...\"],\n  \"skills_removed\": [\"...\"]\n}"
+      },
+      "id": "step5-skills",
+      "name": "Step 5: Reorganize Skills",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const skillsData = $input.item.json.response ? JSON.parse($input.item.json.response) : {};\n\nreturn {\n  json: {\n    ...$input.item.json,\n    step5_skills: skillsData,\n    steps: {\n      current: 5,\n      total: 7,\n      status: 'step5_completed'\n    }\n  }\n};"
+      },
+      "id": "merge-step5",
+      "name": "Merge Step 5 Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2650, 300]
+    },
+    {
+      "parameters": {
+        "prompt": "=**ALL OPTIMIZED COMPONENTS:**\n\nSummary:\n{{ JSON.stringify($json.step3_summary, null, 2) }}\n\nBullets:\n{{ JSON.stringify($json.step4_bullets, null, 2) }}\n\nSkills:\n{{ JSON.stringify($json.step5_skills, null, 2) }}\n\n**TASK 6/7: ASSEMBLE OPTIMIZED CV**\n\nCombine all optimized components into a cohesive CV structure:\n1. Format for ATS compatibility (no tables, simple formatting)\n2. Ensure keyword density is optimal (not stuffed)\n3. Maintain professional tone and readability\n4. Create logical flow between sections\n\nProvide output as JSON:\n{\n  \"optimized_cv\": {\n    \"summary\": \"...\",\n    \"experience\": [{\"title\": \"...\", \"bullets\": [\"...\"]}],\n    \"skills\": {\"category\": [\"...\"]},\n    \"full_text\": \"complete CV text\"\n  }\n}"
+      },
+      "id": "step6-assembly",
+      "name": "Step 6: Assembly",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const assemblyData = $input.item.json.response ? JSON.parse($input.item.json.response) : {};\n\nreturn {\n  json: {\n    ...$input.item.json,\n    step6_assembly: assemblyData,\n    steps: {\n      current: 6,\n      total: 7,\n      status: 'step6_completed'\n    }\n  }\n};"
+      },
+      "id": "merge-step6",
+      "name": "Merge Step 6 Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3050, 300]
+    },
+    {
+      "parameters": {
+        "prompt": "=**ORIGINAL ATS SCORE:** {{ $json.step2_gap_analysis.ats_score_original }}%\n\n**OPTIMIZED CV:**\n{{ $json.step6_assembly.optimized_cv.full_text }}\n\n**JOB KEYWORDS:**\n{{ JSON.stringify($json.step1_keywords.keywords, null, 2) }}\n\n**TASK 7/7: FINAL QA & SCORING**\n\nPerform final quality check:\n1. Recalculate ATS score for optimized CV\n2. Verify all high-priority keywords are included\n3. Check for keyword stuffing (flag if unnatural)\n4. Identify remaining gaps\n5. Provide recommendations\n\nProvide output as JSON:\n{\n  \"ats_score_optimized\": 0-100,\n  \"improvement\": \"+X%\",\n  \"keyword_coverage\": {\n    \"total\": 0,\n    \"matched\": 0,\n    \"missing\": [\"...\"]\n  },\n  \"quality_flags\": [\"keyword_stuffing\", \"unnatural_phrasing\", etc],\n  \"strengths\": [\"...\"],\n  \"remaining_gaps\": [\"...\"],\n  \"recommendations\": [\"...\"],\n  \"ready_to_submit\": true|false\n}"
+      },
+      "id": "step7-qa",
+      "name": "Step 7: Final QA",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3250, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const qaData = $input.item.json.response ? JSON.parse($input.item.json.response) : {};\n\n// Build final response\nconst finalResponse = {\n  success: true,\n  jobId: $input.item.json.jobId,\n  llmProvider: $input.item.json.llmProvider,\n  timestamp: new Date().toISOString(),\n  \n  // Scores\n  scores: {\n    original: $input.item.json.step2_gap_analysis.ats_score_original || 0,\n    optimized: qaData.ats_score_optimized || 0,\n    improvement: qaData.improvement || '+0%'\n  },\n  \n  // All step results for transparency\n  steps: {\n    step1_keywords: $input.item.json.step1_keywords,\n    step2_gap_analysis: $input.item.json.step2_gap_analysis,\n    step3_summary: $input.item.json.step3_summary,\n    step4_bullets: $input.item.json.step4_bullets,\n    step5_skills: $input.item.json.step5_skills,\n    step6_assembly: $input.item.json.step6_assembly,\n    step7_qa: qaData\n  },\n  \n  // Quick access to optimized CV\n  optimized_cv: $input.item.json.step6_assembly.optimized_cv,\n  \n  // QA summary\n  qa_report: {\n    strengths: qaData.strengths || [],\n    remaining_gaps: qaData.remaining_gaps || [],\n    recommendations: qaData.recommendations || [],\n    ready_to_submit: qaData.ready_to_submit || false,\n    quality_flags: qaData.quality_flags || []\n  }\n};\n\nreturn {\n  json: finalResponse\n};"
+      },
+      "id": "build-final-response",
+      "name": "Build Final Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3450, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json, null, 2) }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [3650, 300]
+    },
+    {
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "cv-optimizer-status",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "status-webhook",
+      "name": "Status Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 500],
+      "webhookId": "cv-optimizer-status"
+    },
+    {
+      "parameters": {
+        "functionCode": "return {\n  json: {\n    status: 'healthy',\n    version: '2.0.0',\n    workflow: 'cv-optimizer-universal',\n    supported_llms: ['claude', 'grok', 'llama'],\n    features: [\n      '7-step optimization pipeline',\n      'Multi-LLM support',\n      'Detailed step-by-step results',\n      'ATS score calculation',\n      'Gap analysis',\n      'STAR format bullets'\n    ],\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "status-response",
+      "name": "Status Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 500]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json, null, 2) }}"
+      },
+      "id": "status-webhook-response",
+      "name": "Status Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 500]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{"node": "Parse Input", "type": "main", "index": 0}]]
+    },
+    "Parse Input": {
+      "main": [[{"node": "LLM Router", "type": "main", "index": 0}]]
+    },
+    "LLM Router": {
+      "main": [
+        [{"node": "Step 1: Keywords (Claude)", "type": "main", "index": 0}],
+        [{"node": "Step 1: Keywords (Grok)", "type": "main", "index": 0}]
+      ]
+    },
+    "Step 1: Keywords (Claude)": {
+      "main": [[{"node": "Merge Step 1 Results", "type": "main", "index": 0}]]
+    },
+    "Step 1: Keywords (Grok)": {
+      "main": [[{"node": "Merge Step 1 Results", "type": "main", "index": 0}]]
+    },
+    "Merge Step 1 Results": {
+      "main": [[{"node": "Step 2: Gap Analysis", "type": "main", "index": 0}]]
+    },
+    "Step 2: Gap Analysis": {
+      "main": [[{"node": "Merge Step 2 Results", "type": "main", "index": 0}]]
+    },
+    "Merge Step 2 Results": {
+      "main": [[{"node": "Step 3: Generate Summary", "type": "main", "index": 0}]]
+    },
+    "Step 3: Generate Summary": {
+      "main": [[{"node": "Merge Step 3 Results", "type": "main", "index": 0}]]
+    },
+    "Merge Step 3 Results": {
+      "main": [[{"node": "Step 4: Optimize Bullets", "type": "main", "index": 0}]]
+    },
+    "Step 4: Optimize Bullets": {
+      "main": [[{"node": "Merge Step 4 Results", "type": "main", "index": 0}]]
+    },
+    "Merge Step 4 Results": {
+      "main": [[{"node": "Step 5: Reorganize Skills", "type": "main", "index": 0}]]
+    },
+    "Step 5: Reorganize Skills": {
+      "main": [[{"node": "Merge Step 5 Results", "type": "main", "index": 0}]]
+    },
+    "Merge Step 5 Results": {
+      "main": [[{"node": "Step 6: Assembly", "type": "main", "index": 0}]]
+    },
+    "Step 6: Assembly": {
+      "main": [[{"node": "Merge Step 6 Results", "type": "main", "index": 0}]]
+    },
+    "Merge Step 6 Results": {
+      "main": [[{"node": "Step 7: Final QA", "type": "main", "index": 0}]]
+    },
+    "Step 7: Final QA": {
+      "main": [[{"node": "Build Final Response", "type": "main", "index": 0}]]
+    },
+    "Build Final Response": {
+      "main": [[{"node": "Webhook Response", "type": "main", "index": 0}]]
+    },
+    "Status Webhook": {
+      "main": [[{"node": "Status Response", "type": "main", "index": 0}]]
+    },
+    "Status Response": {
+      "main": [[{"node": "Status Webhook Response", "type": "main", "index": 0}]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 0,
+  "updatedAt": "2026-01-03T00:00:00.000Z",
+  "versionId": "1"
+}
